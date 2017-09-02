@@ -1,0 +1,14 @@
+{
+  "name": "promise",
+  "version": "1.0.0",
+  "description": "promise with Promise/A+",
+  "main": "index.js",
+  "author": "<softshot37@gmail.com>",
+  "license": "MIT",
+  "scripts": {
+    "test": "promises-aplus-tests index.js"
+  },
+  "devDependencies": {
+    "promises-aplus-tests": "^2.1.2"
+  }
+}
