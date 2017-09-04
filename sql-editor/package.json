@@ -6,7 +6,7 @@
   "author": "<yoyoyohamapi softshot37@gmail.com>",
   "license": "MIT",
   "scripts": {
-    "start": "webpack-dev-server --open",
+    "start": "webpack-dev-server --config webpack.dev.js --open",
     "build:dev": "webpack --config webpack.dev.js --env=dev --progress --profile --colors",
     "build:prod": "webpack --config webpack.prod.js --env=prod --progress --profile --colors",
     "lint": "eslint src/"
