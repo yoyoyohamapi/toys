@@ -1,0 +1,19 @@
+{
+  "extends": "react",
+  "parserOptions": {
+    "ecmaFeatures": {
+      "jsx": true
+    }
+  },
+  "env": {
+    "browser": true,
+    "node": true
+  },
+  "rules": {
+    "semi": ["error", "never"],
+    "indent": ["error", 2],
+    "space-before-function-paren": ["error", {
+      "named": "never"
+    }]
+  }
+}
