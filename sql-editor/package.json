@@ -6,8 +6,9 @@
   "author": "<yoyoyohamapi softshot37@gmail.com>",
   "license": "MIT",
   "scripts": {
-    "start": "webpack --config webpack.dev.js --env=dev  --progress --profile --colors && webpack-dev-server --open",
-    "build": "webpack --config webpack.prod.js --env=prod --progress --profile --colors",
+    "start": "webpack-dev-server --open",
+    "build:dev": "webpack --config webpack.dev.js --env=dev --progress --profile --colors",
+    "build:prod": "webpack --config webpack.prod.js --env=prod --progress --profile --colors",
     "lint": "eslint src/"
   },
   "dependencies": {

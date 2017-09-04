@@ -4,6 +4,7 @@
 
 ```bash
 yarn install
+npm run build:dev
 npm run start
 ```
 
