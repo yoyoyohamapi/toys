@@ -12,8 +12,13 @@
   "rules": {
     "semi": ["error", "never"],
     "indent": ["error", 2],
+    "no-new-symbol": ["error"],
     "space-before-function-paren": ["error", {
       "named": "never"
     }]
+  },
+  "globals": {
+    "Symbol": true,
+    "Reflect": true
   }
 }

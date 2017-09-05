@@ -9,7 +9,8 @@ const codeOptions = {
   mode: {
     name: 'text/x-sql'
   },
-  lineNumbers: true
+  lineNumbers: true,
+  width: 500
 }
 
 class Editor extends Component {
@@ -23,6 +24,7 @@ class Editor extends Component {
       <div>
         <div onClick={formatCode}>格式化</div>
         <CodeMirror value={code} onChange={setCode} options={codeOptions} autoSave/>
+        <div contentEditable="true"><span style={{color: '#eee'}}>Test</span></div>
       </div>
     )
   }
