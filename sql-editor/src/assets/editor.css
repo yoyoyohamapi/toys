@@ -1,0 +1,27 @@
+.code-editor {
+  position: relative;
+  width: 100%;
+}
+
+.code-editor .lines {
+  display: flex;
+  flex-direction: column;  
+}
+
+.code-editor .lines .item {
+  width: 100%;
+  padding: 5px;
+  display: flex;
+}
+
+.code-editor .lines .item.active {
+  background-color: #eeeeee
+}
+
+.code-editor .lines .item .no {
+  display: block;
+  background: #eee;
+  width: 10px;
+}
+
+
