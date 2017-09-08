@@ -82,10 +82,23 @@ class Editor extends Component {
     const leftKeyUp$ = moveInText$.filter(e => e.key === 'ArrowLeft') // 向左移动
     const rightKeyUp$ = moveInText$.filter(e => e.key === 'ArrowRight') // 向右移动
 
+    // 顶部退格
+    const backspaceInStart$ = backspaceKeyUp$.filter(() => {
+      // 只响应顶部退格
+      const { cursor } = self.state
+      return cursor.x === 0 && cursor.y > 0
+    })
+
+    // 一般退格删除
+    const backspaceDel$ = backspaceKeyUp$.filter(() => {
+      const { cursor } = self.state
+      return cursor.x !== 0
+    })
+
     // 移动光标
     const move$ = Observable.merge(
       textInput$.mapTo({ x: +1, y: 0 }),
-      backspaceKeyUp$.mapTo({ x: -1, y: 0 }),
+      backspaceDel$.mapTo({ x: -1, y: 0 }),
       upKeyUp$.mapTo({ x: 0, y: -1 }),
       downKeyUp$.mapTo({ x: 0, y: +1 }),
       leftKeyUp$.mapTo({ x: -1, y: 0 }),
@@ -103,6 +116,7 @@ class Editor extends Component {
       }
     })
 
+    // 回车进行的光标移动
     const enterMove$ = enterKeyUp$.map(() => {
       const { cursor } = self.state
       return {
@@ -111,6 +125,7 @@ class Editor extends Component {
       }
     })
 
+    // 鼠标定位进行的光标移动
     const mouseMove$ = mouseDown$.map(({ offsetX, offsetY }) => {
       const { fontSize } = self.state
       return {
@@ -119,6 +134,7 @@ class Editor extends Component {
       }
     })
 
+    // 方向键控制的移动
     const arrowMove$ = move$.map(({ x, y }) => {
       const { cursor, lines } = self.state
       const toX = cursor.x + x
@@ -142,43 +158,69 @@ class Editor extends Component {
       }
     })
 
+    // 顶部退格进行的
+    const backspaceInStartMove$ = backspaceInStart$.map(() => {
+      const { cursor, lines } = self.state
+      const line = lines[cursor.y - 1]
+      return {
+        x: line.length,
+        y: cursor.y - 1
+      }
+    })
+
     // 光标位置
     const cursor$ = Observable.merge(
       mouseMove$,
       enterMove$,
+      backspaceInStartMove$,
       arrowMove$
     ).do(v => console.log('[STATE cursor]', v))
 
-    // 当前编辑行：光标发生行变换
-    const inChangingLine$ = cursor$
-      .filter(cursor => cursor.y !== self.state.inChangingLine.idx)
-      .withLatestFrom(textKeyUp$)
-      .map(([{ x, y }, { key }]) => {
-        const { inChangingLine, lines } = self.state
-        const line = lines[y]
-        switch (key) {
-        case 'Enter':
-          // 回车时，将后续内容带入新行
-          return {
-            idx: y,
-            before: '',
-            after: inChangingLine.after
+    // 当前编辑行变化：
+    // 1. 光标发生行变换
+    // 2. 退格时处理 before
+    const inChangingLine$ = Observable.merge(
+      cursor$
+        .filter(cursor => cursor.y !== self.state.inChangingLine.idx)
+        .withLatestFrom(textKeyUp$)
+        .map(([{ x, y }, { key }]) => {
+          const { inChangingLine, lines } = self.state
+          const line = lines[y]
+          switch (key) {
+          case 'Enter':
+            // 回车时，将后续内容带入新行
+            return {
+              idx: y,
+              before: '',
+              after: inChangingLine.after
+            }
+          case 'Backspace':
+            // 顶部退格时，将后续内容并入上一行，前置内容修改为上一行内容
+            return {
+              idx: y,
+              before: lines[y],
+              after: inChangingLine.after
+            }
+          default:
+            return {
+              idx: y,
+              before: line.substring(0, x),
+              after: line.substring(x)
+            }
           }
-        case 'Backspace':
-          // 顶部退格时，将后续内容并入上一行，前置内容修改为上一行内容 
+        }),
+      // 处理 before
+      backspaceDel$
+        .filter(() => self.state.text.length === 0)
+        // .takeUntil(backspaceInStart$)
+        .map(() => {
+          const { inChangingLine } = self.state
           return {
-            idx: y,
-            before: line[y],
-            after: inChangingLine.after
+            ...inChangingLine,
+            before: inChangingLine.before.slice(0, -1)
           }
-        default:
-          return {
-            idx: y,
-            before: line.substring(0, x),
-            after: line.substring(x)
-          }
-        }
-      }).do(v => console.log('[STATE inChangingLine]', v))
+        })
+    ).do(v => console.log('[STATE inChangingLine]', v))
 
     // 行变换
     // 1. 换行
@@ -186,14 +228,14 @@ class Editor extends Component {
     const lines$ = Observable
       .merge(
         enterKeyUp$,
-        backspaceKeyUp$.filter(() => self.state.cursor.x === 0 && self.state.cursor.y > 0)
+        backspaceInStart$
       )
       .map(({ key }) => {
-        const { lines, cursor, text } = self.state
-        const { x, y } = cursor
-        const line = lines[y]
-        const before = `${text}${line.substring(0, x)}`
-        const after = line.substring(x)
+        const { lines, cursor, text, inChangingLine } = self.state
+        const { y } = cursor
+        // 当前文本框的内容并入
+        const before = `${inChangingLine.before}${text}`
+        const after = inChangingLine.after
         const beforeLines = lines.slice(0, y)
         const afterLines = lines.slice(y + 1, 0)
         if (key === 'Enter') {
@@ -201,10 +243,10 @@ class Editor extends Component {
           const split = [before, after]
           return [...beforeLines, ...split, ...afterLines]
         } else if (key === 'Backspace') {
-          // 退格合并游标左右的行
+          // 顶部退格时，将当前行内容并入上一行
           const afterLines = lines.slice(y + 1)
           const prevLine = lines[y - 1]
-          const merged = `${prevLine}${line}`
+          const merged = `${prevLine}${after}`
           return [...beforeLines.slice(0, -1), merged, ...afterLines]
         }
       }).do(v => console.log('[STATE lines]', v))
@@ -297,7 +339,7 @@ class Editor extends Component {
   }
 
   renderCode() {
-    return <div></div>
+    return <div />
   }
 
   renderInput() {
@@ -309,8 +351,8 @@ class Editor extends Component {
     }
     return (
       <textarea
-        value={text} 
-        onInput={this.handleTextInput.bind(this)} 
+        value={text}
+        onInput={this.handleTextInput.bind(this)}
         onKeyUp={this.handleTextKeyUp.bind(this)}
         onFocus={this.handleTextFocus.bind(this)}
         onChange={this.handleTextChange.bind(this)}
