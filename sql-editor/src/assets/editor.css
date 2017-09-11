@@ -10,8 +10,10 @@
 
 .code-editor .lines .item {
   width: 100%;
-  padding: 5px;
   display: flex;
+  height: 20px;
+  line-height: 20px;
+  white-space: pre;
 }
 
 .code-editor .lines .item.active {
@@ -22,6 +24,14 @@
   display: block;
   background: #eee;
   width: 10px;
+}
+
+.code-editor .cursor {
+  width: 0px;
+  border-right: 2px solid red;
+  position: absolute;
+  height: 18px;
+  padding-top: 1px; 
 }
 
 
