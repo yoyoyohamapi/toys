@@ -1,4 +1,4 @@
-# React + Rxjs + CodeMirror SQL 编辑器
+# React + Rxjs 实现的 SQL 编辑器
 
 ## 启动
 
