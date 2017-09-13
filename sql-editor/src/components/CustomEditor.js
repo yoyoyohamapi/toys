@@ -1,7 +1,6 @@
 import React, { Component } from 'react'
 import { Observable, Subject } from 'rxjs'
 import createLexer from '../libs/lexer'
-import highlight from '../libs/highlight'
 import sqlConfig from '../libs/sqlConfig'
 import '../assets/editor.css'
 
@@ -10,7 +9,7 @@ const lexer = createLexer(sqlConfig)
 const textareaStyle = {
   width: '1000px',
   position: 'absolute',
-  bottom: '-1em',
+  // bottom: '-1em',
   outline: 'none',
   padiding: 0,
   fontSize: 'inherit',
@@ -18,7 +17,11 @@ const textareaStyle = {
   lineHeight: '20px',
   padding: 0,
   margin: 0,
-  border: 'none'
+  border: 'none',
+  backgroundColor: 'rgba(0, 0, 0, 0)',
+  color: 'rgba(0, 0, 0, 0)',
+  resize: 'none',
+  zIndex: -1
 }
 
 const initialState = {
@@ -34,8 +37,6 @@ const initialState = {
   computedCursorTop: 0,
   // 控制游标闪烁
   cursorVisible: true,
-  // 正在编辑的行
-  inEditingLine: 0,
   // 缓存的内容
   cachedBefore: '',
   cachedAfter: '',
@@ -43,7 +44,7 @@ const initialState = {
   lines: [''],
   lineHeight: 20,
   // 高亮后的行
-  highlightedLines: []
+  highlighted: [[{ type: 'word', value: '' }]]
 }
 
 const computeCursorLeft = ($ruler, text, offset) => {
@@ -69,8 +70,8 @@ class Editor extends Component {
     this.subscription = Observable.of(initialState)
       .merge(this.reducer$)
       .scan((state, reducer) => reducer(state))
-      .do(state => console.log('[STATE]', state))
       .subscribe(state => this.proxy$.next(state))
+    this.$input.focus()
   }
 
   componentWillUnmount() {
@@ -78,50 +79,43 @@ class Editor extends Component {
   }
 
   bindFunctions() {
-    this.handleMouseDown = this.handleMouseDown.bind(this)
+    this.handleLineMouseUp = this.handleLineMouseUp.bind(this)
     this.handleTextChange = this.handleTextChange.bind(this)
     this.handleTextFocus = this.handleTextFocus.bind(this)
     this.handleTextInput = this.handleTextInput.bind(this)
+    this.handleTextKeyDown = this.handleTextKeyDown.bind(this)
     this.handleTextKeyUp = this.handleTextKeyUp.bind(this)
     this.getRuler = this.getRuler.bind(this)
   }
 
   intent(state$) {
     const self = this
-    const mouseDown$ = new Subject()
+    const selection$ = new Subject()
+    const textKeyDown$ = new Subject()
     const textKeyUp$ = new Subject()
     const textFocus$ = new Subject()
     const textInput$ = new Subject()
-    const text$ = new Subject().do(v => console.log('[STATE text]', v))
-    const moveInText$ = textKeyUp$.filter(e => !e.isComposing) // 非输入法状态时判定为移动
-    const enterKeyUp$ = moveInText$.filter(e => e.key === 'Enter') // 回车流
-    const backspaceKeyUp$ = moveInText$.filter(e => e.key === 'Backspace') // 退格流
-    const upKeyUp$ = moveInText$.filter(e => e.key === 'ArrowUp') // 向上移动
-    const downKeyUp$ = moveInText$.filter(e => e.key === 'ArrowDown') // 向下移动
-    const leftKeyUp$ = moveInText$.filter(e => e.key === 'ArrowLeft') // 向左移动
-    const rightKeyUp$ = moveInText$.filter(e => e.key === 'ArrowRight') // 向右移动
+    const text$ = new Subject()
+    const moveInText$ = textKeyDown$.filter(e => !e.isComposing) // 非输入法状态时判定为移动
+    const enterKeyUp$ = textKeyUp$.filter(e => e.key === 'Enter')
+    const backspaceKeyDown$ = moveInText$.filter(e => e.key === 'Backspace') // 退格流
+    const upKeyDown$ = moveInText$.filter(e => e.key === 'ArrowUp') // 向上移动
+    const downKeyDown$ = moveInText$.filter(e => e.key === 'ArrowDown') // 向下移动
+    const leftKeyDown$ = moveInText$.filter(e => e.key === 'ArrowLeft') // 向左移动
+    const rightKeyDown$ = moveInText$.filter(e => e.key === 'ArrowRight') // 向右移动
 
     // 顶部退格
-    const backspaceInStart$ = backspaceKeyUp$.filter(() => {
+    const backspaceInStart$ = backspaceKeyDown$.filter(() => {
       // 只响应顶部退格
       const { cursor } = self.state
       return cursor.x === 0 && cursor.y > 0
     })
 
     // 一般退格删除
-    const backspaceDel$ = backspaceKeyUp$.filter(() => {
+    const backspaceDel$ = backspaceKeyDown$.filter(() => {
       const { cursor } = self.state
       return cursor.x !== 0
     })
-
-    // 移动光标
-    const move$ = Observable.merge(
-      backspaceDel$.mapTo({ x: -1, y: 0 }),
-      upKeyUp$.mapTo({ x: 0, y: -1 }),
-      downKeyUp$.mapTo({ x: 0, y: +1 }),
-      leftKeyUp$.mapTo({ x: -1, y: 0 }),
-      rightKeyUp$.mapTo({ x: +1, y: 0 })
-    )
 
     // 输入开始
     const beginInput$ = textFocus$.map(() => {
@@ -136,32 +130,97 @@ class Editor extends Component {
 
     // 回车进行的光标移动
     const enterMove$ = enterKeyUp$.map(() => {
-      const { cursor } = self.state
+      const { cursor, cachedBefore } = self.state
+      const matched = cachedBefore.match(/^\s+/)
+      const headSpaces = matched ? matched[0] : ''
       return {
-        x: 0,
+        x: headSpaces.length,
         y: cursor.y + 1
       }
     })
 
     // 鼠标定位进行的光标移动
-    const mouseMove$ = mouseDown$.map(({ offsetX, offsetY }) => {
-      const { fontSize } = self.state
-      return {
-        x: Math.floor(offsetX / fontSize) * fontSize, // 当前应当处于的位置
-        y: Math.floor(offsetY / fontSize) * fontSize
+    const mouseMove$ = selection$
+      .filter(({ selection }) => selection.rangeCount === 1)
+      .map(({ selection, lineIdx, tokenIdx }) => {
+        const { highlighted } = self.state
+        const { anchorOffset } = selection
+        const tokens = highlighted[lineIdx].slice(0, tokenIdx)
+        return {
+          x: tokens.reduce((sum, token) => sum + token.value.length, anchorOffset),
+          y: lineIdx
+        }
+      }).do(v => console.log('mouse move', v))
+
+    const upMove$ = upKeyDown$.map(() => {
+      const { cursor, lines } = self.state
+      const lastY = cursor.y - 1
+      const prevLine = lines[lastY]
+      if (lastY < 0) {
+        return cursor
+      } else {
+        return {
+          x: prevLine.length < cursor.x ? prevLine.length : cursor.x,
+          y: cursor.y - 1
+        }
       }
     })
 
-    // 方向键控制的移动
-    const arrowMove$ = move$.map(({ x, y }) => {
-      const { cursor } = self.state
-      const toX = cursor.x + x
-      const toY = cursor.y + y
-      return {
-        x: toX,
-        y: toY
+    const downMove$ = downKeyDown$.map(() => {
+      const { cursor, lines } = self.state
+      const nextY = cursor.y + 1
+      const nextLine = lines[nextY]
+      if (nextY >= lines.length) {
+        return cursor
+      } else {
+        return {
+          x: nextLine.length < cursor.x ? nextLine.length : cursor.x,
+          y: cursor.y + 1
+        }
       }
     })
+
+    const leftMove$ = leftKeyDown$.map(() => {
+      const { cursor, lines } = self.state
+      const lastX = cursor.x - 1
+      const lastY = cursor.y - 1
+      if (lastX >= 0) {
+        return {
+          x: lastX,
+          y: cursor.y
+        }
+      } else {
+        return {
+          x: lastY >= 0 ? lines[lastY].length : cursor.x,
+          y: lastY >= 0 ? lastY : cursor.y
+        }
+      }
+    })
+
+    const rightMove$ = rightKeyDown$.map(() => {
+      const { cursor, lines, cachedBefore, text, cachedAfter } = self.state
+      const nextX = cursor.x + 1
+      const nextY = cursor.y + 1
+      const line = `${cachedBefore}${text}${cachedAfter}`
+      if (nextX <= line.length) {
+        return {
+          x: nextX,
+          y: cursor.y
+        }
+      } else {
+        return {
+          x: nextY < lines.length ? 0 : cursor.x,
+          y: nextY < lines.length ? nextY : cursor.y
+        }
+      }
+    })
+    // 方向键控制的移动
+    const arrowMove$ = Observable.merge(
+      leftMove$,
+      rightMove$,
+      upMove$,
+      downMove$
+    )
 
     // 顶部退格进行的
     const backspaceInStartMove$ = backspaceInStart$.map(() => {
@@ -173,88 +232,158 @@ class Editor extends Component {
       }
     })
 
+    // 一般退格
+    const backspaceMove$ = backspaceDel$.map(() => {
+      const { cursor } = self.state
+      return {
+        x: cursor.x - 1,
+        y: cursor.y
+      }
+    })
     // 光标位置
     const cursor$ = Observable.merge(
       mouseMove$,
-      arrowMove$
-    ).filter(cursor => {
-      // x 坐标矫正
-      const { cachedBefore, text } = self.state
-      return cursor.x >= 0 && cursor.x <= `${cachedBefore}${text}`.length
-    }).filter(cursor => {
-      // y 坐标矫正
-      const { lines } = self.state
-      return cursor.y >= 0 && cursor.y <= lines.length
-    }).merge(
-      textInput$.map(() => {
-        const { cursor } = self.state
+      arrowMove$,
+      backspaceMove$,
+      backspaceInStartMove$,
+      enterMove$,
+      text$.map(text => {
+        const { cursor, cachedBefore } = self.state
         return {
-          x: cursor.x + 1,
+          x: cachedBefore.length + text.length,
           y: cursor.y
         }
       }),
-      backspaceInStartMove$,
-      enterMove$
-    ).do(v => console.log('[STATE cursor]', v))
+    )
 
     // 当前编辑行变化
-    const inEditingLine$ = cursor$
+    const moveToLine$ = cursor$
       .filter(cursor => cursor.y !== self.state.cursor.y)
       .map(cursor => cursor.y)
-      .do(v => console.log('[STATE inEditingLine]', v))
 
-    // 删除元素
-    const cachedBefore$ = backspaceDel$.filter(() => self.state.text.length === 0)
-      .map(() => self.state.cachedBefore.slice(0, -1))
+    const changingLine$ = Observable.merge(
+      leftMove$,
+      rightMove$,
+      upMove$,
+      downMove$,
+      mouseMove$
+    ).filter(({ y }) => {
+      const { cursor } = self.state
+      return cursor.y !== y
+    })
+    // 刷新行
+    const line$ = Observable.merge(
+      backspaceDel$.map(() => {
+        const { cachedBefore, text, cachedAfter } = self.state
+        return {
+          cachedBefore: `${cachedBefore}${text}`.slice(0, -1),
+          cachedAfter
+        }
+      }),
+      leftMove$.filter(({ y }) => self.state.cursor.y === y).map(() => {
+        const { cachedBefore, text, cachedAfter } = self.state
+        const beforeCursor = `${cachedBefore}${text}`
+        return {
+          cachedBefore: beforeCursor.slice(0, -1),
+          cachedAfter: `${beforeCursor.slice(-1)}${cachedAfter}`
+        }
+      }),
+      rightMove$.filter(({ y }) => self.state.cursor.y === y).map(() => {
+        const { cachedBefore, text, cachedAfter, cursor } = self.state
+        const line = `${cachedBefore}${text}${cachedAfter}`
+        return {
+          cachedBefore: line.slice(0, cursor.x + 1),
+          cachedAfter: line.slice(cursor.x + 1)
+        }
+      }),
+      mouseMove$.filter(({ y }) => self.state.cursor.y === y).map(({ x }) => {
+        const { cachedBefore, text, cachedAfter } = self.state
+        const line = `${cachedBefore}${text}${cachedAfter}`
+        return {
+          cachedBefore: line.substring(0, x),
+          cachedAfter: line.substring(x)
+        }
+      })
+    )
 
     // 行变换
-    // 1. 换行
-    // 2. 顶部退格
     const lines$ = Observable
       .merge(
-        enterKeyUp$,
-        backspaceInStart$
+        // 回车
+        enterKeyUp$.map(() => {
+          const { lines, cursor, cachedBefore, text, cachedAfter, highlighted } = self.state
+          const line = `${cachedBefore}${text}`
+          const beforeLines = lines.slice(0, cursor.y)
+          const beforeHighlighted = highlighted.slice(0, cursor.y)
+          const afterLines = lines.slice(cursor.y + 1)
+          const afterHighlighted = highlighted.slice(cursor.y + 1)
+          // 新行保持与上一行一致的缩进
+          const matched = line.match(/^\s+/)
+          const headSpaces = matched ? matched[0] : ''
+          return {
+            highlighted: [...beforeHighlighted, lexer(line), lexer(cachedAfter), ...afterHighlighted],
+            cachedBefore: headSpaces,
+            cachedAfter,
+            lines: [...beforeLines, line, cachedAfter, ...afterLines]
+          }
+        }),
+        // 顶部退格考虑合并行
+        backspaceInStart$.map(() => {
+          const { lines, cursor, cachedAfter, highlighted } = self.state
+          const beforeLines = lines.slice(0, cursor.y)
+          const beforeHighlighted = highlighted.slice(0, cursor.y)
+          const afterLines = lines.slice(cursor.y + 1)
+          const afterHighlighted = highlighted.slice(cursor.y + 1)
+          const prevLine = lines[cursor.y - 1].slice(0, -1)
+          const merged = `${prevLine}${cachedAfter}`
+          return {
+            highlighted: [...beforeHighlighted.slice(0, -1), lexer(merged), ...afterHighlighted],
+            cachedBefore: prevLine,
+            cachedAfter,
+            lines: [...beforeLines.slice(0, -1), merged, ...afterLines]
+          }
+        }),
+        // 一般行变化
+        changingLine$.map(({ x, y }) => {
+          const { cachedBefore, cachedAfter, text, cursor, lines, highlighted } = self.state
+          const line = `${cachedBefore}${text}${cachedAfter}`
+          const beforeLines = lines.slice(0, cursor.y)
+          const beforeHighlighted = highlighted.slice(0, cursor.y)
+          const afterLines = lines.slice(cursor.y + 1)
+          const afterHighlighted = highlighted.slice(cursor.y + 1)
+          const toLine = lines[y]
+          return {
+            highlighted: [...beforeHighlighted, lexer(line), ...afterHighlighted],
+            cachedBefore: toLine.substring(0, x),
+            cachedAfter: toLine.substring(x),
+            lines: [
+              ...beforeLines, line, ...afterLines
+            ]
+          }
+        })
       )
-      .map(({ key }) => {
-        const { lines, cursor, text, cachedBefore, cachedAfter } = self.state
-        const { y } = cursor
-        // 当前文本框的内容并入
-        const before = `${cachedBefore}${text}`
-        const after = cachedAfter
-        const beforeLines = lines.slice(0, y)
-        const afterLines = lines.slice(y + 1, 0)
-        if (key === 'Enter') {
-          // 回车划分游标左右的行
-          const split = [before, after]
-          return [...beforeLines, ...split, ...afterLines]
-        } else if (key === 'Backspace') {
-          // 顶部退格时，将当前行内容并入上一行
-          const afterLines = lines.slice(y + 1)
-          const prevLine = lines[y - 1]
-          const merged = `${prevLine}${after}`
-          return [...beforeLines.slice(0, -1), merged, ...afterLines]
-        }
-      }).do(v => console.log('[STATE lines]', v))
 
     // 重置输入框
     const resetText$ = Observable.merge(
       lines$
-    ).do(() => console.log('[STATE resetText]'))
+    )
 
     // 计算光标顶部位置
-    const computedCursorTop$ = inEditingLine$.map(inEditingLine => {
-      return inEditingLine * self.state.lineHeight
+    const computedCursorTop$ = moveToLine$.map(line => {
+      return line * self.state.lineHeight
     })
 
     // 计算光标左侧位置
     const computedCursorLeft$ = Observable.merge(
-      // 当前行的光标处理
-      cursor$.filter(cursor => self.state.cursor.y === cursor.y)
-        .withLatestFrom(textInput$)
-        .map(([cursor, char]) => {
-          const { cachedBefore, text, cachedAfter } = self.state
-          return `${cachedBefore}${text}${char}${cachedAfter}`.substring(0, cursor.x)
-        }),
+      // 当前行移动处理
+      line$.map(cached => {
+        return cached.cachedBefore
+      }),
+      // 文本变化
+      text$.map(text => {
+        const { cachedBefore } = self.state
+        return cachedBefore + text
+      }),
       // 顶部退格时的光标处理
       backspaceInStart$.map(() => {
         const { lines, cursor } = self.state
@@ -263,30 +392,65 @@ class Editor extends Component {
       }),
       // 换行
       enterKeyUp$.map(() => {
-        return ''
+        const { cachedBefore } = self.state
+        // 新行保持与上一行一致的缩进
+        const matched = cachedBefore.match(/^\s+/)
+        const headSpaces = matched ? matched[0] : ''
+        return headSpaces
+      }),
+      changingLine$.map(cursor => {
+        const { lines } = self.state
+        return lines[cursor.y].substring(0, cursor.x)
       })
     ).map(beforeCursorText => {
       return computeCursorLeft(this.$ruler, beforeCursorText, 10)
     })
-      .do(v => console.log('[STATE computedCursorLeft]', v))
 
     // 词法解析
     // const tokens$ = code$.map(lexer)
 
+    // 当前行内容变化
+    const lineContent$ = Observable.merge(
+      text$.map(text => {
+        const { cachedBefore, cachedAfter } = self.state
+        return `${cachedBefore}${text}${cachedAfter}`
+      }),
+      backspaceDel$.map(() => {
+        const { cachedBefore, text, cachedAfter } = self.state
+        return `${cachedBefore}${text}${cachedAfter}`.slice(0, -1)
+      })
+    ).map(content => {
+      const { cursor } = self.state
+      return {
+        line: cursor.y,
+        content
+      }
+    })
+
     // 高亮
-    // const highlight$ = tokens$.map(highlight)
+    const highlight$ = Observable.merge(
+      // 当前行变化
+      lineContent$.map(({ line, content }) => {
+        const { highlighted } = self.state
+        const beforeLines = highlighted.slice(0, line)
+        const afterLines = highlighted.slice(line + 1)
+        return [...beforeLines, lexer(content), ...afterLines]
+      })
+    )
+
     // 光标闪烁流
     const blink$ = cursor$
+      .startWith(null)
       .switchMapTo(Observable.interval(500).mapTo(null))
 
     return {
-      mouseDown$,
+      selection$,
+      textKeyDown$,
       textKeyUp$,
       textFocus$,
       textInput$,
       cursor$,
-      inEditingLine$,
-      // highlight$,
+      highlight$,
       beginInput$,
       blink$,
       lines$,
@@ -294,41 +458,42 @@ class Editor extends Component {
       resetText$,
       computedCursorLeft$,
       computedCursorTop$,
-      cachedBefore$
+      line$
     }
   }
 
   model(actions) {
     return Observable.merge(
-      actions.cursor$.map(cursor => state => ({ ...state, cursor: { ...cursor } })).do(() => console.log('[REDUCER cursor]')),
-      actions.lines$.map(lines => state => ({ ...state, lines: [...lines] })).do(() => console.log('[REDUCER lines]')),
-      // actions.blink$.map(cursorVisible => state => ({ ...state, cursorVisible: !state.cursorVisible })),
-      // actions.code$.map(code => state => ({ ...state, code: code })),
-      // actions.highlight$.map(highlightedCode => state => ({ ...state, highlightedCode })),
+      actions.cursor$.map(cursor => state => ({ ...state, cursor: { ...cursor } })),
+      actions.lines$.map(childState => state => ({ ...state, ...childState })),
+      actions.blink$.map(cursorVisible => state => ({ ...state, cursorVisible: !state.cursorVisible })),
+      actions.highlight$.map(highlighted => state => ({ ...state, highlighted })),
       actions.text$.map(text => state => ({ ...state, text })),
-      actions.cachedBefore$.map(cachedBefore => state => ({ ...state, cachedBefore })),
-      // actions.inChangingLine$.map(inChangingLine => state => ({ ...state, inChangingLine })).do(() => console.log('[REDUCER inChangingLine]')),
+      actions.line$.map(cached => state => ({ ...state, ...cached, text: '' })),
       actions.resetText$.mapTo(state => ({ ...state, text: '' })),
       actions.computedCursorLeft$.map(computedCursorLeft => state => ({ ...state, computedCursorLeft })),
-      actions.computedCursorTop$.map(computedCursorTop => state => ({ ...state, computedCursorTop })),
-      actions.inEditingLine$.map(row => state => {
-        const { lines, cursor } = state
-        const line = lines[row]
-        const cachedBefore = line.substring(0, cursor.x)
-        const cachedAfter = line.substring(cursor.x)
-        return {
-          ...state,
-          inEditingLine: row,
-          cachedBefore,
-          cachedAfter
-        }
-      })
-
+      actions.computedCursorTop$.map(computedCursorTop => state => ({ ...state, computedCursorTop }))
     )
   }
 
-  handleMouseDown(e) {
-    this.actions.mouseDown$.next(e.nativeEvent)
+  handleLineMouseUp(e, lineIdx, tokenIdx) {
+    let selection
+    if (window.getSelection) {
+      selection = window.getSelection()
+    } else if (document.selection) {
+      // For Opera
+      selection = document.selection.createRange()
+    }
+    this.actions.selection$.next({
+      lineIdx,
+      tokenIdx,
+      selection
+    })
+    this.$input.focus()
+  }
+
+  handleTextKeyDown(e) {
+    this.actions.textKeyDown$.next(e.nativeEvent)
   }
 
   handleTextKeyUp(e) {
@@ -340,8 +505,9 @@ class Editor extends Component {
   }
 
   handleTextInput(e) {
-    if (e.nativeEvent.inputType === 'insertText') {
-      this.actions.textInput$.next(e.nativeEvent.data)
+    const { inputType } = e.nativeEvent
+    if (inputType === 'insertText' || inputType === 'insertCompositionText') {
+      this.actions.textInput$.next(e.nativeEvent)
     }
   }
 
@@ -354,17 +520,30 @@ class Editor extends Component {
   }
 
   renderLines() {
-    const { lines, inEditingLine, text, cachedBefore, cachedAfter } = this.state
-    return lines.map((line, index) => {
-      if (inEditingLine === index) {
+    const { highlighted, cursor } = this.state
+    return highlighted.map((tokens, lineIdx) => {
+      const spans = tokens.map((token, tokenIdx) => (
+        <span
+          key={tokenIdx}
+          className={`ce-${token.type}`}
+          onMouseUp={e => this.handleLineMouseUp(e, lineIdx, tokenIdx)}>
+          {token.value}
+        </span>
+      ))
+      if (cursor.y === lineIdx) {
         return (
-          <div key={index} className="item">
-            <span className="no active">{index + 1}</span>
-            {`${cachedBefore}${text}${cachedAfter}`}
+          <div key={lineIdx} className="item" >
+            <span className="no active">{lineIdx + 1}</span>
+            {spans}
           </div>
         )
       } else {
-        return (<div key={index} className="item"><span className="no">{index + 1}</span>{line}</div>)
+        return (
+          <div key={lineIdx} className="item">
+            <span className="no">{lineIdx + 1}</span>
+            {spans}
+          </div>
+        )
       }
     })
   }
@@ -383,7 +562,14 @@ class Editor extends Component {
     return (
       <textarea
         value={text}
+        ref={input => {this.$input = input}}
+        autoFocus
+        autoCorrect={'off'}
+        autoCapitalize={'off'}
+        spellCheck={false}
+        tabIndex={0}
         onInput={this.handleTextInput}
+        onKeyDown={this.handleTextKeyDown}
         onKeyUp={this.handleTextKeyUp}
         onFocus={this.handleTextFocus}
         onChange={this.handleTextChange}
@@ -411,7 +597,7 @@ class Editor extends Component {
 
   render() {
     return (
-      <div className="code-editor">
+      <div className="code-editor" onMouseUp={() => this.$input.focus()}>
         <span ref={this.getRuler} style={{ visibility: 'hidden', whiteSpace: 'pre' }}/>
         <div className="lines">{this.renderLines()}</div>
         <div className="code" onMouseDown={this.handleMouseDown}>{this.renderCode()}</div>

@@ -3,6 +3,12 @@
   width: 100%;
 }
 
+.code-editor .input {
+  /* overflow: hidden; */
+  /* position: relative; */
+  z-index: -1;
+}
+
 .code-editor .lines {
   display: flex;
   flex-direction: column;  
@@ -32,6 +38,22 @@
   position: absolute;
   height: 18px;
   padding-top: 1px; 
+}
+
+.ce-reserved-toplevel {
+  color: #708;
+}
+
+.ce-placeholder {
+  color: #05a;
+}
+
+.ce-line-comment {
+ color: #a50;
+}
+
+.ce-operator {
+  color: #164;
 }
 
 
