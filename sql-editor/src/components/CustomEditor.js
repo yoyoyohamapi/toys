@@ -104,7 +104,7 @@ class Editor extends Component {
     const textKeyUp$ = new Subject()
     const textFocus$ = new Subject()
     const textInput$ = new Subject()
-    const text$ = new Subject()
+    const text$ = new Subject().do(v => console.log(v))
     const moveInText$ = textKeyDown$.filter(e => !e.isComposing) // 非输入法状态时判定为移动
     const enterKeyUp$ = textKeyUp$.filter(e => e.key === 'Enter')
     const backspaceKeyDown$ = moveInText$.filter(e => e.key === 'Backspace') // 退格流
@@ -161,10 +161,29 @@ class Editor extends Component {
     // 撤销
     const undo$ = createShortcutStream('ctrl+z')
     undo$.subscribe(v => console.log('undo', v))
-
+    
     // 粘贴
     const paste$ = createShortcutStream('ctrl+v')
     paste$.subscribe(v => console.log('paste', v))
+
+    // 非输入法状态
+    const notInComposing$ = textInput$.filter(({ isComposing }) => !isComposing)
+    // 输入法状态
+    const inComposing$ = textInput$.filter(({ isComposing }) => isComposing)
+    // 输入法： input 时为 isComposing, 按键抬起时为非 isComposing
+    const endComposing$ = textKeyUp$
+      .filter(({ isComposing }) => !isComposing)
+      .withLatestFrom(inComposing$)
+
+      // 缓存当前内容
+    const cache$ = Observable.merge(
+      notInComposing$.pluck('data'),
+      endComposing$.map(([_, inputEvent]) => inputEvent.data).do(v => console.log('结束输入', v))
+    )
+    cache$.subscribe(data => {
+      console.log(self.state)
+      console.log('该缓存了')
+    })
 
     // 顶部退格
     const backspaceInStart$ = backspaceKeyDown$.filter(() => {
@@ -559,6 +578,7 @@ class Editor extends Component {
   }
 
   handleTextKeyUp(e) {
+    console.log('text key up', e.nativeEvent)
     this.actions.textKeyUp$.next(e.nativeEvent)
   }
 
@@ -574,6 +594,7 @@ class Editor extends Component {
   }
 
   handleTextChange(e) {
+    console.log('text change', e.nativeEvent)
     this.actions.text$.next(e.target.value)
   }
 
