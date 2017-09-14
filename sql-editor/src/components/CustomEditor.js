@@ -2,6 +2,9 @@ import React, { Component } from 'react'
 import { Observable, Subject } from 'rxjs'
 import createLexer from '../libs/lexer'
 import sqlConfig from '../libs/sqlConfig'
+import shortcuts from '../config/shortcuts'
+import keyCodeMap from '../config/keyCodeMap'
+
 import '../assets/editor.css'
 
 const lexer = createLexer(sqlConfig)
@@ -47,6 +50,12 @@ const initialState = {
   highlighted: [[{ type: 'word', value: '' }]]
 }
 
+/**
+ * 计算光标在页面的绝对位置
+ * @param {DOM} $ruler
+ * @param {String} text 
+ * @param {Int} offset 
+ */
 const computeCursorLeft = ($ruler, text, offset) => {
   $ruler.textContent = text
   const left = $ruler.offsetWidth
@@ -103,6 +112,59 @@ class Editor extends Component {
     const downKeyDown$ = moveInText$.filter(e => e.key === 'ArrowDown') // 向下移动
     const leftKeyDown$ = moveInText$.filter(e => e.key === 'ArrowLeft') // 向左移动
     const rightKeyDown$ = moveInText$.filter(e => e.key === 'ArrowRight') // 向右移动
+
+    // 按键流
+    const keyEvents$ = Observable
+      .merge(textKeyDown$, textKeyUp$)
+      // .distinctUntilChanged(
+      //   (a, b) => a.keyCode === b.keyCode && a.type === b.type
+      // )
+
+    // 为每一个按键创建 press(up & down) 流
+    const createKeyPressStream = charCode => ({
+      char: charCode,
+      stream: keyEvents$
+        .filter(event => event.keyCode === charCode)
+        .pluck('type')
+    })
+
+    const createShortcutStream = text => {
+      // 'ctrl+z'
+      // 数据源                          --- ctrl -----  z
+      // 转换为 keycode                  ---  17  ----- 90
+      // 为每个按键创建 press 流           ---  17$ ----- 90$ (press)
+      //                               ----  17down
+      //                               ----  90down --- 90up --- 90down --- 90up
+      // 聚合                           ---- (17down 90down) --- (17down 90up) --- (17down 90down) --- (17down 90up) --- 
+      // 过滤                           ---- (17down 90down) --------------------- (17down 90down) ---------------------                          
+      return Observable
+        .from(text.split('+')) // 分割快捷键操作序列 ---Ctrl---z
+        .map(char => keyCodeMap[char.toLowerCase()]) // 获得各个按键的code 
+        .map(createKeyPressStream)
+        .pluck('stream')
+        .toArray()
+        .mergeMap(arr => {
+          return Observable.combineLatest(arr)
+        })
+        .filter(arr => {
+          // 连续的 down 构成快捷键
+          let isDown = true
+          const len = arr.length
+          for (let i = 0; i < len; i++) {
+            isDown = isDown && (arr[i] === 'keydown')
+          }
+          return isDown
+        })
+        .map(x => text)
+    }
+
+    // 撤销
+    const undo$ = createShortcutStream('ctrl+z')
+    undo$.subscribe(v => console.log('undo', v))
+
+    // 粘贴
+    const paste$ = createShortcutStream('ctrl+v')
+    paste$.subscribe(v => console.log('paste', v))
 
     // 顶部退格
     const backspaceInStart$ = backspaceKeyDown$.filter(() => {
