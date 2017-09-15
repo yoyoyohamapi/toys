@@ -5,6 +5,8 @@ import sqlConfig from '../libs/sqlConfig'
 import shortcuts from '../config/shortcuts'
 import keyCodeMap from '../config/keyCodeMap'
 
+import Stack from '../libs/Stack'
+
 import '../assets/editor.css'
 
 const lexer = createLexer(sqlConfig)
@@ -72,6 +74,15 @@ class Editor extends Component {
     this.proxy$.subscribe(state => this.setState(state))
     this.actions = this.intent(this.proxy$)
     this.reducer$ = this.model(this.actions)
+    // 缓存的状态
+    this.cachedStates = new Stack(20)
+    this.actions.cache$.subscribe(() => {
+      this.cachedStates.push(this.state)
+    })
+    // 撤销
+    this.actions.undo$.subscribe(() => {
+      this.setState(this.cachedStates.pop())
+    })
     this.bindFunctions()
   }
 
@@ -160,7 +171,6 @@ class Editor extends Component {
 
     // 撤销
     const undo$ = createShortcutStream('ctrl+z')
-    undo$.subscribe(v => console.log('undo', v))
 
     // 粘贴
     const paste$ = createShortcutStream('ctrl+v')
@@ -180,11 +190,7 @@ class Editor extends Component {
       notInComposing$.pluck('data'),
       endComposing$.map(([_, inputEvent]) => inputEvent.data).do(v => console.log('结束输入', v))
     )
-    cache$.subscribe(data => {
-      console.log(self.state)
-      console.log('该缓存了')
-    })
-
+    
     // 顶部退格
     const backspaceInStart$ = backspaceKeyDown$.filter(() => {
       // 只响应顶部退格
@@ -547,7 +553,9 @@ class Editor extends Component {
       computedCursorLeft$,
       computedCursorTop$,
       line$,
-      stopBlink$
+      stopBlink$,
+      undo$,
+      cache$
     }
   }
 
