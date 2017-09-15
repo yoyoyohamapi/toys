@@ -97,4 +97,4 @@ export default {
   'back slash':	220,
   'close braket':	221,
   'single quote':	222,
-};
+}

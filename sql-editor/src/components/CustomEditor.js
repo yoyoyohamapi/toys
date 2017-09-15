@@ -116,9 +116,9 @@ class Editor extends Component {
     // 按键流
     const keyEvents$ = Observable
       .merge(textKeyDown$, textKeyUp$)
-      // .distinctUntilChanged(
-      //   (a, b) => a.keyCode === b.keyCode && a.type === b.type
-      // )
+      .distinctUntilChanged(
+        (a, b) => a.keyCode === b.keyCode && a.type === b.type
+      )
 
     // 为每一个按键创建 press(up & down) 流
     const createKeyPressStream = charCode => ({
@@ -161,7 +161,7 @@ class Editor extends Component {
     // 撤销
     const undo$ = createShortcutStream('ctrl+z')
     undo$.subscribe(v => console.log('undo', v))
-    
+
     // 粘贴
     const paste$ = createShortcutStream('ctrl+v')
     paste$.subscribe(v => console.log('paste', v))
@@ -498,7 +498,8 @@ class Editor extends Component {
       }),
       backspaceDel$.map(() => {
         const { cachedBefore, text, cachedAfter } = self.state
-        return `${cachedBefore}${text}${cachedAfter}`.slice(0, -1)
+        const before = `${cachedBefore}${text}`.slice(0, -1)
+        return `${before}${cachedAfter}`
       })
     ).map(content => {
       const { cursor } = self.state
@@ -519,10 +520,16 @@ class Editor extends Component {
       })
     )
 
-    // 光标闪烁流
-    const blink$ = cursor$
-      .startWith(null)
-      .switchMapTo(Observable.interval(500).mapTo(null))
+    // cursor 位置确定以后进行光标闪烁
+    const stopBlink$ = textKeyDown$
+
+    // 光标闪烁
+    const blink$ = Observable
+      .merge(
+        computedCursorLeft$,
+        computedCursorTop$
+      )
+      .switchMap(() => Observable.interval(500).takeUntil(stopBlink$))
 
     return {
       selection$,
@@ -539,7 +546,8 @@ class Editor extends Component {
       resetText$,
       computedCursorLeft$,
       computedCursorTop$,
-      line$
+      line$,
+      stopBlink$
     }
   }
 
@@ -553,7 +561,8 @@ class Editor extends Component {
       actions.line$.map(cached => state => ({ ...state, ...cached, text: '' })),
       actions.resetText$.mapTo(state => ({ ...state, text: '' })),
       actions.computedCursorLeft$.map(computedCursorLeft => state => ({ ...state, computedCursorLeft })),
-      actions.computedCursorTop$.map(computedCursorTop => state => ({ ...state, computedCursorTop }))
+      actions.computedCursorTop$.map(computedCursorTop => state => ({ ...state, computedCursorTop })),
+      actions.stopBlink$.mapTo(state => ({ ...state, cursorVisible: true }))
     )
   }
 
