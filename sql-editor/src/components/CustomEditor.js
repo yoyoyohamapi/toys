@@ -29,7 +29,7 @@ const textareaStyle = {
   zIndex: -1
 }
 
-const initialState = {
+const baseState = {
   // 当前输入内容
   text: '',
   // 游标相对位置
@@ -49,9 +49,17 @@ const initialState = {
   lines: [''],
   lineHeight: 20,
   // 高亮后的行
-  highlighted: [[{ type: 'word', value: '' }]]
+  highlighted: [[{ type: 'word', value: '' }]],
+  // 操作记录
+  history: [],
+  // 当前操作
+  step: 0
 }
 
+const initialState = {
+  ...baseState,
+  history: [{ ...baseState }]
+}
 /**
  * 计算光标在页面的绝对位置
  * @param {DOM} $ruler
@@ -65,6 +73,15 @@ const computeCursorLeft = ($ruler, text, offset) => {
   return left + offset
 }
 
+const getPrevState = state => Object
+  .keys(state)
+  .reduce((data, key) => {
+    if (key !== 'history' && key !== 'step') {
+      data[key] = state[key]
+    }
+    return data
+  }, {})
+
 class Editor extends Component {
   constructor(props) {
     super(props)
@@ -74,15 +91,6 @@ class Editor extends Component {
     this.proxy$.subscribe(state => this.setState(state))
     this.actions = this.intent(this.proxy$)
     this.reducer$ = this.model(this.actions)
-    // 缓存的状态
-    this.cachedStates = new Stack(20)
-    this.actions.cache$.subscribe(() => {
-      this.cachedStates.push(this.state)
-    })
-    // 撤销
-    this.actions.undo$.subscribe(() => {
-      this.setState(this.cachedStates.pop())
-    })
     this.bindFunctions()
   }
 
@@ -188,9 +196,9 @@ class Editor extends Component {
       // 缓存当前内容
     const cache$ = Observable.merge(
       notInComposing$.pluck('data'),
-      endComposing$.map(([_, inputEvent]) => inputEvent.data).do(v => console.log('结束输入', v))
+      endComposing$.map(([_, inputEvent]) => inputEvent.data)
     )
-    
+
     // 顶部退格
     const backspaceInStart$ = backspaceKeyDown$.filter(() => {
       // 只响应顶部退格
@@ -237,7 +245,7 @@ class Editor extends Component {
           x: tokens.reduce((sum, token) => sum + token.value.length, anchorOffset),
           y: lineIdx
         }
-      }).do(v => console.log('mouse move', v))
+      })
 
     const upMove$ = upKeyDown$.map(() => {
       const { cursor, lines } = self.state
@@ -570,7 +578,30 @@ class Editor extends Component {
       actions.resetText$.mapTo(state => ({ ...state, text: '' })),
       actions.computedCursorLeft$.map(computedCursorLeft => state => ({ ...state, computedCursorLeft })),
       actions.computedCursorTop$.map(computedCursorTop => state => ({ ...state, computedCursorTop })),
-      actions.stopBlink$.mapTo(state => ({ ...state, cursorVisible: true }))
+      actions.stopBlink$.mapTo(state => ({ ...state, cursorVisible: true })),
+      actions.cache$.mapTo(state => {
+        // 获得除了 history 以外的状态，并保存为最新
+        const prevState = getPrevState(state)
+        const { step, history } = state
+        const length = history.length
+        // 如果当前不是最新一步操作，则替换最新一次操作
+        const newHistory = step === length - 1 ? [...history, state] : [...history.slice(0, -1), state]
+        return {
+          ...prevState,
+          history: newHistory,
+          step: step + 1
+        }
+      }),
+      actions.undo$.mapTo(state => {
+        const { step } = state
+        const prevStep = step - 1
+        return prevStep < 0 ? {
+          ...initialState
+        } : {
+          ...state.history[prevStep],
+          step: prevStep
+        }
+      })
     )
   }
 
