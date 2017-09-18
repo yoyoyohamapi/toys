@@ -1,11 +1,29 @@
 import React, { Component } from 'react'
-import { Observable, Subject } from 'rxjs'
+
+import { Observable } from 'rxjs/Observable'
+import { Subject } from 'rxjs/Subject'
+import 'rxjs/add/observable/of'
+import 'rxjs/add/observable/from'
+import 'rxjs/add/observable/combineLatest'
+import 'rxjs/add/observable/interval'
+import 'rxjs/add/observable/merge'
+import 'rxjs/add/operator/merge'
+import 'rxjs/add/operator/map'
+import 'rxjs/add/operator/mapTo'
+import 'rxjs/add/operator/scan'
+import 'rxjs/add/operator/filter'
+import 'rxjs/add/operator/do'
+import 'rxjs/add/operator/mergeMap'
+import 'rxjs/add/operator/switchMap'
+import 'rxjs/add/operator/toArray'
+import 'rxjs/add/operator/pluck'
+import 'rxjs/add/operator/takeUntil'
+import 'rxjs/add/operator/distinctUntilChanged'
+import 'rxjs/add/operator/withLatestFrom'
+
 import createLexer from '../libs/lexer'
 import sqlConfig from '../libs/sqlConfig'
-import shortcuts from '../config/shortcuts'
 import keyCodeMap from '../config/keyCodeMap'
-
-import Stack from '../libs/Stack'
 
 import '../assets/editor.css'
 
@@ -14,7 +32,6 @@ const lexer = createLexer(sqlConfig)
 const textareaStyle = {
   width: '1000px',
   position: 'absolute',
-  // bottom: '-1em',
   outline: 'none',
   padiding: 0,
   fontSize: 'inherit',
@@ -29,6 +46,7 @@ const textareaStyle = {
   zIndex: -1
 }
 
+// 编辑器状态
 const baseState = {
   // 当前输入内容
   text: '',
@@ -49,17 +67,18 @@ const baseState = {
   lines: [''],
   lineHeight: 20,
   // 高亮后的行
-  highlighted: [[{ type: 'word', value: '' }]],
+  highlighted: [[{ type: 'word', value: '' }]]
+}
+
+// 加入历史记录
+const initialState = {
+  ...baseState,
   // 操作记录
-  history: [],
-  // 当前操作
+  history: [{ ...baseState }],
+  // 当前步骤
   step: 0
 }
 
-const initialState = {
-  ...baseState,
-  history: [{ ...baseState }]
-}
 /**
  * 计算光标在页面的绝对位置
  * @param {DOM} $ruler
@@ -73,7 +92,11 @@ const computeCursorLeft = ($ruler, text, offset) => {
   return left + offset
 }
 
-const getPrevState = state => Object
+/**
+ * 获得基本状态
+ * @param {Object} state 
+ */
+const getBaseState = state => Object
   .keys(state)
   .reduce((data, key) => {
     if (key !== 'history' && key !== 'step') {
@@ -581,7 +604,7 @@ class Editor extends Component {
       actions.stopBlink$.mapTo(state => ({ ...state, cursorVisible: true })),
       actions.cache$.mapTo(state => {
         // 获得除了 history 以外的状态，并保存为最新
-        const prevState = getPrevState(state)
+        const prevState = getBaseState(state)
         const { step, history } = state
         const length = history.length
         // 如果当前不是最新一步操作，则替换最新一次操作
