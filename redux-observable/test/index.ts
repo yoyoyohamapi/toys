@@ -39,7 +39,7 @@ describe("our redux-observable", () => {
       )
     }
 
-    const epicMiddleware = createEpicMiddleware()
+    const epicMiddleware = createEpicMiddleware(epic)
     const store = createStore(reducer, applyMiddleware(epicMiddleware))
 
     store.dispatch({ type: 'PING' })
