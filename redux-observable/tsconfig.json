@@ -4,7 +4,7 @@
     "noImplicitAny": false,
     "moduleResolution": "node",
     "allowSyntheticDefaultImports": true,
-    "baseUrl": "./src",
+    "baseUrl": "./src/demo",
     "paths": {
       "@constants/*": ["./constants/*"],
       "@containers/*": ["./containers/*"],
@@ -17,10 +17,14 @@
       "dom",
       "dom.iterable"
     ],
+    "types": [
+      "mocha"
+    ],
     "jsx": "react",
   },
   "include": [
-    "./src/**/*"
+    "./src/**/*",
+    "./test/**/*"
   ],
   "exclude": [
     "node_modules",

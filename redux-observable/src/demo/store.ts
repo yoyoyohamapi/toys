@@ -7,7 +7,7 @@ import { createStore, applyMiddleware, Store, combineReducers } from 'redux'
 import { composeWithDevTools } from 'redux-devtools-extension'
 import userReducer from './reducers/user'
 import userEpic from './epics/user'
-import { createEpicMiddleware } from './middlewares/redux-observable'
+import { createEpicMiddleware } from '../'
 
 export default function configureStore(): Store {
   const store = createStore(

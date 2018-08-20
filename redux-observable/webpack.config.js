@@ -7,7 +7,7 @@ const path = require('path')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 
 module.exports = {
-  entry: './src/index.tsx',
+  entry: './src/demo/index.tsx',
   output: {
 		path: path.resolve(__dirname, './dist'),
 		filename: 'bundle.js',
@@ -16,10 +16,10 @@ module.exports = {
   resolve: {
     extensions: ['.js', '.jsx', '.ts', '.tsx'],
     alias: {
-    '@actions': path.resolve(__dirname, './src/actions'),
-    '@constants': path.resolve(__dirname, './src/constants'),
-    '@containers': path.resolve(__dirname, './src/containers'),
-    "@apis": path.resolve(__dirname, './src/apis')
+    '@actions': path.resolve(__dirname, './src/demo/actions'),
+    '@constants': path.resolve(__dirname, './src/demo/constants'),
+    '@containers': path.resolve(__dirname, './src/demo/containers'),
+    "@apis": path.resolve(__dirname, './src/demo/apis')
    }
   },
   module: {
@@ -39,7 +39,7 @@ module.exports = {
   },
   plugins: [
     new HtmlWebpackPlugin({
-      template: path.resolve(__dirname, './src/index.html')
+      template: path.resolve(__dirname, './src/demo/index.html')
 		})
   ],
   devServer: {
