@@ -1,12 +1,18 @@
-import { Action, Middleware } from 'redux'
+import { Action, Middleware, Store } from 'redux'
 import { Subject, merge, pipe } from 'rxjs'
 import { filter } from 'rxjs/operators'
+
+interface IEpicMiddleware extends Middleware {
+  run?: () => void
+}
 
 export const createEpicMiddleware = (...epics) => {
   const action$ = new Subject()
   const state$ = new Subject()
   const newAction$ = merge(...epics.map((epic) => epic(action$, state$)))
-  const middleware: Middleware = (store) => {
+  let cachedStore
+  const middleware: IEpicMiddleware = (store) => {
+    cachedStore = store
     newAction$.subscribe((action: Action) => {
       store.dispatch(action)
     })
@@ -18,6 +24,9 @@ export const createEpicMiddleware = (...epics) => {
     }
   }
 
+  middleware.run = () => {
+    cachedStore.dispatch({type: '@@IGNORE_THIS_ACTION'})
+  }
   return middleware
 }
 

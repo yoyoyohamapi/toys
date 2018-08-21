@@ -4,7 +4,7 @@
  * @ignore created 2018-08-20 20:41:54
  */
 import { expect } from 'chai'
-import { mapTo, filter, distinctUntilChanged, tap } from 'rxjs/operators'
+import { mapTo, distinctUntilChanged } from 'rxjs/operators'
 import { createStore, applyMiddleware } from 'redux'
 import { createEpicMiddleware, ofType } from '../src'
 
@@ -20,7 +20,7 @@ describe("our redux-observable", () => {
 
     const epic = (action$, state$) => {
       return action$.pipe(
-        filter(({type}) => type === 'PING'),
+        ofType('PING'),
         mapTo(({type: 'PONG'}))
       )
    }
@@ -50,11 +50,12 @@ describe("our redux-observable", () => {
    }
 
     const epicMiddleware = createEpicMiddleware(epic)
-    const store = createStore(reducer, applyMiddleware(epicMiddleware))
-    store.dispatch({type: 'IGNORE_THIS_ACTION'})
+    createStore(reducer, applyMiddleware(epicMiddleware))
+    epicMiddleware.run()
+    // store.dispatch({type: 'IGNORE_THIS_ACTION'})
     actions.shift()
     expect(actions).to.be.deep.equal([
-      {type: 'IGNORE_THIS_ACTION'},
+      {type: '@@IGNORE_THIS_ACTION'},
       {type: 'STATE'}
     ])
   })
