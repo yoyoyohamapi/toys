@@ -1,6 +1,6 @@
 import { Action, Middleware, Store } from 'redux'
-import { Subject, merge, pipe } from 'rxjs'
-import { filter } from 'rxjs/operators'
+import { Subject, merge, pipe, queueScheduler, asapScheduler } from 'rxjs'
+import { filter, subscribeOn, observeOn } from 'rxjs/operators'
 
 interface IEpicMiddleware extends Middleware {
   run?: () => void
@@ -9,27 +9,33 @@ interface IEpicMiddleware extends Middleware {
 export const createEpicMiddleware = (...epics) => {
   const action$ = new Subject()
   const state$ = new Subject()
-  const newAction$ = merge(...epics.map((epic) => epic(action$, state$)))
+  const newAction$ = merge(...epics.map((epic) => epic(action$, state$))).pipe(
+    subscribeOn(queueScheduler),
+    observeOn(queueScheduler)
+  )
+
   let cachedStore
   const middleware: IEpicMiddleware = (store) => {
     cachedStore = store
-    newAction$.subscribe((action: Action) => {
-      store.dispatch(action)
-    })
+
     return (next) => (action) => {
+      // 先让 action 到达 reducer
       const result = next(action)
-      action$.next(action)
+      // 获得 reducer 处理后的状态
       state$.next(store.getState())
+      // 进入 action 转换管道
+      action$.next(action)
       return result
     }
   }
 
   middleware.run = () => {
-    cachedStore.dispatch({type: '@@IGNORE_THIS_ACTION'})
+    newAction$.subscribe(cachedStore.dispatch)
+    state$.next(cachedStore.getState())
   }
   return middleware
 }
 
-export const ofType = (type: string) => pipe(
-  filter((action: Action) => type === action.type)
+export const ofType = (...types: string[]) => pipe(
+  filter((action: Action) => types.indexOf(action.type) > -1)
 )

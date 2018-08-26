@@ -10,12 +10,15 @@ import userEpic from './epics/user'
 import { createEpicMiddleware } from '../'
 
 export default function configureStore(): Store {
+  const epicMiddleware = createEpicMiddleware(userEpic)
   const store = createStore(
     combineReducers({
       user: userReducer
     }),
-    composeWithDevTools(applyMiddleware(createEpicMiddleware(userEpic)))
+    composeWithDevTools(applyMiddleware(epicMiddleware))
   )
+
+  epicMiddleware.run()
 
   return store
 }
