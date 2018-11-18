@@ -7,12 +7,9 @@ interface IEpicMiddleware extends Middleware {
 }
 
 export const createEpicMiddleware = (...epics) => {
-  const action$ = new Subject()
+  const action$ = new Subject().pipe(observeOn(queueScheduler)) as Subject<Action>
   const state$ = new Subject()
-  const newAction$ = merge(...epics.map((epic) => epic(action$, state$))).pipe(
-    subscribeOn(queueScheduler),
-    observeOn(queueScheduler)
-  )
+  const newAction$ = merge(...epics.map((epic) => epic(action$, state$)))
 
   let cachedStore
   const middleware: IEpicMiddleware = (store) => {

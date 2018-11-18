@@ -99,26 +99,29 @@ describe('our redux-observable', () => {
     ])
   })
 
-  it('should support synchronous emission by epics on start up', () => {
+  it('should queue synchronous actions', () => {
     const reducer = (state = [], action) => state.concat(action)
-    const epic1 = (action$, state$) => of({ type: 'FIRST' })
-    const epic2 = (action$, state$) => action$.pipe(
+    const epic1 = (action$, state$) => action$.pipe(
       ofType('FIRST'),
-      mapTo({ type: 'SECOND' })
+      mergeMap(() => of({ type: 'SECOND' }, { type: 'THIRD'}))
+    )
+    const epic2 = (action$, state$) => action$.pipe(
+      ofType('SECOND'),
+      mapTo({type: 'FORTH'})
     )
 
     const epicMiddleware = createEpicMiddleware(epic1, epic2)
-    console.log('before create store')
     const store = createStore(reducer, applyMiddleware(epicMiddleware))
-    console.log('after create store')
     epicMiddleware.run()
 
+    store.dispatch({type: 'FIRST'})
     const actions = store.getState()
     actions.shift()
-    console.log('actions', actions)
     expect(actions).to.deep.equal([
       { type: 'FIRST' },
-      { type: 'SECOND' }
+      { type: 'SECOND' },
+      { type: 'THIRD' },
+      { type: 'FORTH' }
     ])
   })
 })
